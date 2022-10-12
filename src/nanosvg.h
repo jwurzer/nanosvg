@@ -157,15 +157,18 @@ typedef struct NSVGimage
 {
 	float width;				// Width of the image.
 	float height;				// Height of the image.
+	float viewMinx, viewMiny, viewWidth, viewHeight;
 	NSVGshape* shapes;			// Linked list of shapes in the image.
 } NSVGimage;
 
 // Parses SVG file from a file, returns SVG image as paths.
-NSVGimage* nsvgParseFromFile(const char* filename, const char* units, float dpi);
+NSVGimage* nsvgParseFromFile(const char* filename, const char* units, float dpi,
+		int ignoreWidthHeight);
 
 // Parses SVG file from a null terminated string, returns SVG image as paths.
 // Important note: changes the string.
-NSVGimage* nsvgParse(char* input, const char* units, float dpi);
+NSVGimage* nsvgParse(char* input, const char* units, float dpi,
+		int ignoreWidthHeight);
 
 // Deletes list of paths.
 void nsvgDelete(NSVGimage* image);
@@ -450,6 +453,7 @@ typedef struct NSVGparser
 	float dpi;
 	char pathFlag;
 	char defsFlag;
+	int ignoreWidthHeight;
 } NSVGparser;
 
 static void nsvg__xformIdentity(float* t)
@@ -2434,9 +2438,13 @@ static void nsvg__parseSVG(NSVGparser* p, const char** attr)
 	for (i = 0; attr[i]; i += 2) {
 		if (!nsvg__parseAttr(p, attr[i], attr[i + 1])) {
 			if (strcmp(attr[i], "width") == 0) {
-				p->image->width = nsvg__parseCoordinate(p, attr[i + 1], 0.0f, 1.0f);
+				if (!p->ignoreWidthHeight) {
+					p->image->width = nsvg__parseCoordinate(p, attr[i + 1], 0.0f, 1.0f);
+				}
 			} else if (strcmp(attr[i], "height") == 0) {
-				p->image->height = nsvg__parseCoordinate(p, attr[i + 1], 0.0f, 1.0f);
+				if (!p->ignoreWidthHeight) {
+					p->image->height = nsvg__parseCoordinate(p, attr[i + 1], 0.0f, 1.0f);
+				}
 			} else if (strcmp(attr[i], "viewBox") == 0) {
 				sscanf(attr[i + 1], "%f%*[%%, \t]%f%*[%%, \t]%f%*[%%, \t]%f", &p->viewMinx, &p->viewMiny, &p->viewWidth, &p->viewHeight);
 			} else if (strcmp(attr[i], "preserveAspectRatio") == 0) {
@@ -2793,7 +2801,8 @@ static void nsvg__scaleToViewbox(NSVGparser* p, const char* units)
 	}
 }
 
-NSVGimage* nsvgParse(char* input, const char* units, float dpi)
+NSVGimage* nsvgParse(char* input, const char* units, float dpi,
+		int ignoreWidthHeight)
 {
 	NSVGparser* p;
 	NSVGimage* ret = 0;
@@ -2803,11 +2812,17 @@ NSVGimage* nsvgParse(char* input, const char* units, float dpi)
 		return NULL;
 	}
 	p->dpi = dpi;
+	p->ignoreWidthHeight = ignoreWidthHeight;
 
 	nsvg__parseXML(input, nsvg__startElement, nsvg__endElement, nsvg__content, p);
 
 	// Scale to viewBox
 	nsvg__scaleToViewbox(p, units);
+
+	p->image->viewMinx = p->viewMinx;
+	p->image->viewMiny = p->viewMiny;
+	p->image->viewWidth = p->viewWidth;
+	p->image->viewHeight = p->viewHeight;
 
 	ret = p->image;
 	p->image = NULL;
@@ -2817,7 +2832,8 @@ NSVGimage* nsvgParse(char* input, const char* units, float dpi)
 	return ret;
 }
 
-NSVGimage* nsvgParseFromFile(const char* filename, const char* units, float dpi)
+NSVGimage* nsvgParseFromFile(const char* filename, const char* units, float dpi,
+		int ignoreWidthHeight)
 {
 	FILE* fp = NULL;
 	size_t size;
@@ -2834,7 +2850,7 @@ NSVGimage* nsvgParseFromFile(const char* filename, const char* units, float dpi)
 	if (fread(data, 1, size, fp) != size) goto error;
 	data[size] = '\0';	// Must be null terminated.
 	fclose(fp);
-	image = nsvgParse(data, units, dpi);
+	image = nsvgParse(data, units, dpi, ignoreWidthHeight);
 	free(data);
 
 	return image;
